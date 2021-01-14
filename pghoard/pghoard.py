@@ -128,7 +128,7 @@ class PGHoard:
             return False
         return True
 
-    def create_basebackup(self, site, connection_info, basebackup_path, callback_queue=None):
+    def create_basebackup(self, site, connection_info, basebackup_path, callback_queue=None, primary_connection_info=None):
         connection_string, _ = replication_connection_string_and_slot_using_pgpass(connection_info)
         pg_version_server = self.check_pg_server_version(connection_string, site)
         if not self.check_pg_versions_ok(site, pg_version_server, "pg_basebackup"):
@@ -145,7 +145,8 @@ class PGHoard:
             transfer_queue=self.transfer_queue,
             callback_queue=callback_queue,
             pg_version_server=pg_version_server,
-            metrics=self.metrics)
+            metrics=self.metrics,
+            primary_connection_info=primary_connection_info)
         thread.start()
         self.basebackups[site] = thread
 
@@ -418,6 +419,10 @@ class PGHoard:
 
         chosen_backup_node = random.choice(site_config["nodes"])
 
+        # for any operations that must be executed on a primary node, but pghoard
+        # is pointing at a standby, can provide an optional primary node as well as the chosen_backup_node
+        primary_node = site_config["primary_node"] if "primary_node" in site_config else None
+
         if site not in self.receivexlogs and site not in self.walreceivers:
             if site_config["active_backup_mode"] == "pg_receivexlog":
                 self.receivexlog_listener(site, chosen_backup_node, xlog_path + "_incoming")
@@ -473,7 +478,7 @@ class PGHoard:
 
         if new_backup_needed and not os.path.exists(self.config["maintenance_mode_file"]):
             self.basebackups_callbacks[site] = Queue()
-            self.create_basebackup(site, chosen_backup_node, basebackup_path, self.basebackups_callbacks[site])
+            self.create_basebackup(site, chosen_backup_node, basebackup_path, self.basebackups_callbacks[site], primary_node)
 
     def run(self):
         self.start_threads_on_startup()
