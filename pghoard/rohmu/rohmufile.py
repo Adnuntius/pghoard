@@ -12,6 +12,7 @@ from .encryptor import DecryptorFile, DecryptSink, EncryptorFile
 from .errors import InvalidConfigurationError
 from .filewrap import ThrottleSink
 import time
+from threading import Timer
 
 
 def _fileobj_name(input_obj):
@@ -108,7 +109,7 @@ def file_writer(*, fileobj, compression_algorithm=None, compression_level=0, rsa
 def write_file(*, input_obj, output_obj, progress_callback=None,
                compression_algorithm=None, compression_level=0,
                rsa_public_key=None, log_func=None, header_func=None,
-               data_callback=None):
+               data_callback=None, timeout_wait_sec=10, timeout_callback=None):
     start_time = time.monotonic()
 
     original_size = 0
@@ -119,9 +120,16 @@ def write_file(*, input_obj, output_obj, progress_callback=None,
 
         header_block = True
         while True:
-            input_data = input_obj.read(IO_BLOCK_SIZE)
-            if not input_data:
-                break
+            try:
+                if timeout_callback:
+                    timeout_timer = Timer(timeout_wait_sec, timeout_callback)
+                    timeout_timer.start()
+                input_data = input_obj.read(IO_BLOCK_SIZE)
+                if not input_data:
+                    break
+            finally:
+                if timeout_callback:
+                    timeout_timer.cancel()
 
             if data_callback:
                 data_callback(input_data)

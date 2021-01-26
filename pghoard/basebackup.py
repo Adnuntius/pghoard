@@ -163,6 +163,13 @@ class PGBaseBackup(Thread):
         self.log.debug("Compressing basebackup directly to file: %r", basebackup_path)
         set_stream_nonblocking(proc.stderr)
 
+        wait_for_wal_timeout = None
+        # for pg 9.6 we don't need this logic, as the pg_basebackup does not wait around
+        # for extra wal files to be produced, I think this pg 10 behaviour is actually a bug
+        if "wait_for_wal_timeout" in self.config["backup_sites"][self.site] \
+                and self.pg_version_server >= 100000 and self.primary_connection_info:
+            wait_for_wal_timeout = self.config["backup_sites"][self.site]["wait_for_wal_timeout"]
+
         metadata = {
             "compression-algorithm": compression_algorithm,
             "encryption-key-id": encryption_key_id,
@@ -179,6 +186,17 @@ class PGBaseBackup(Thread):
                     metadata.update({"start-wal-segment": start_wal_segment,
                                      "start-time": start_time})
 
+            # there is no guarantee this is the end of the base backup, we have to set a reasonable timeout
+            # and hope that the timeout indicates that postgresql base backup is still waiting for that
+            # last pesky wal file to be returned
+            # fixme - the better approach would be non blocking stdout, but when I tried that the performance was bad!
+            def timeout_callback():
+                connection_string = connection_string_using_pgpass(self.primary_connection_info)
+                with psycopg2.connect(connection_string) as db_conn:
+                    self.log.info("Switching Wal files")
+                    cursor = db_conn.cursor()
+                    cursor.execute("SELECT pg_switch_wal()")
+
             def progress_callback():
                 stderr_data = proc.stderr.read()
                 if stderr_data:
@@ -193,7 +211,9 @@ class PGBaseBackup(Thread):
                 rsa_public_key=rsa_public_key,
                 progress_callback=progress_callback,
                 log_func=self.log.info,
-                header_func=extract_header_func
+                header_func=extract_header_func,
+                timeout_wait_sec=wait_for_wal_timeout,
+                timeout_callback=timeout_callback if wait_for_wal_timeout else None
             )
             os.link(output_obj.name, basebackup_path)
 
@@ -264,17 +284,13 @@ class PGBaseBackup(Thread):
             "pg-version": self.pg_version_server,
         })
 
-        # support xlog switching if at least postgresql 9.6
-        if self.pg_version_server >= 90600:
-            # if primary connection is available use that
-            connection_string = connection_string_using_pgpass(self.primary_connection_info or self.connection_info)
+        # support xlog switching if postgresql 9.6, we use different behaviour for 10+
+        if self.pg_version_server >= 90600 and self.pg_version_server < 100000 and self.primary_connection_info:
+            connection_string = connection_string_using_pgpass(self.primary_connection_info)
             with psycopg2.connect(connection_string) as db_conn:
-                backup_end_wal_segment, backup_end_time = self.get_backup_end_segment_and_time(db_conn, "non-exclusive")
-
-                metadata.update({
-                    "end-time": backup_end_time,
-                    "end-wal-segment": backup_end_wal_segment,
-                })
+                self.log.info("Switching Xlog")
+                cursor = db_conn.cursor()
+                cursor.execute("SELECT pg_switch_xlog()")
 
         self.transfer_queue.put({
             "callback_queue": self.callback_queue,
