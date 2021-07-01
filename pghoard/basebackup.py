@@ -282,6 +282,7 @@ class PGBaseBackup(Thread):
         metadata.update({
             "original-file-size": original_input_size,
             "pg-version": self.pg_version_server,
+            "active-backup-mode": self.config["backup_sites"][self.site]["active_backup_mode"],
         })
 
         # support xlog switching if postgresql 9.6, we use different behaviour for 10+
@@ -353,6 +354,7 @@ class PGBaseBackup(Thread):
             "metadata": {
                 "start-time": start_time,
                 "start-wal-segment": start_wal_segment,
+                "active-backup-mode": self.config["backup_sites"][self.site]["active_backup_mode"],
             },
             "type": "CLOSE_WRITE",
         })
