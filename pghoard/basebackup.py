@@ -118,7 +118,8 @@ class PGBaseBackup(Thread):
         callback_queue=None,
         pg_version_server=None,
         metadata=None,
-        get_remote_basebackups_info=None
+        get_remote_basebackups_info=None,
+        primary_connection_info=None
     ):
         super().__init__()
         self.log = logging.getLogger("PGBaseBackup")
@@ -138,6 +139,7 @@ class PGBaseBackup(Thread):
         self.latest_activity = datetime.datetime.utcnow()
         self.storage = storage
         self.get_remote_basebackups_info = get_remote_basebackups_info
+        self.primary_connection_info = primary_connection_info
 
     def run(self):
         try:
@@ -326,6 +328,13 @@ class PGBaseBackup(Thread):
         # basebackups than those controlled by pghoard are currently running at the same time.
         # pg_basebackups are taken simultaneously directly or through other backup managers the WAL
         # file will be incorrect since a new checkpoint will not be issued for a parallel backup
+
+        # need to make sure we switch WALs so base backup has
+        connection_string = connection_string_using_pgpass(self.primary_connection_info)
+        with psycopg2.connect(connection_string) as db_conn:
+            self.log.info("Switching Wal files")
+            cursor = db_conn.cursor()
+            cursor.execute("SELECT pg_switch_wal()")
 
         if "start-wal-segment" not in metadata:
             metadata.update({"start-wal-segment": start_wal_segment})

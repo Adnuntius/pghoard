@@ -155,7 +155,7 @@ class PGHoard:
             return False
         return True
 
-    def create_basebackup(self, site, connection_info, basebackup_path, callback_queue=None, metadata=None):
+    def create_basebackup(self, site, connection_info, basebackup_path, callback_queue=None, metadata=None, primary_connection_info=None):
         connection_string, _ = replication_connection_string_and_slot_using_pgpass(connection_info)
         pg_version_server = self.check_pg_server_version(connection_string, site)
         if not self.check_pg_versions_ok(site, pg_version_server, "pg_basebackup"):
@@ -175,7 +175,8 @@ class PGHoard:
             metrics=self.metrics,
             storage=self.get_or_create_site_storage(site=site),
             metadata=metadata,
-            get_remote_basebackups_info=self.get_remote_basebackups_info
+            get_remote_basebackups_info=self.get_remote_basebackups_info,
+            primary_connection_info=primary_connection_info
         )
         thread.start()
         self.basebackups[site] = thread
@@ -254,7 +255,7 @@ class PGHoard:
             xlog_path + "_incoming",
             basebackup_path,
             basebackup_path + "_incoming",
-        ]
+            ]
 
         for path in paths_to_create:
             if not os.path.exists(path):
@@ -305,9 +306,9 @@ class PGHoard:
             delta_backup_key = os.path.join(self._get_site_prefix(site), "basebackup", backup_name)
             bmeta_compressed = storage.get_contents_to_string(delta_backup_key)[0]
             with rohmufile.file_reader(
-                fileobj=io.BytesIO(bmeta_compressed),
-                metadata=metadata,
-                key_lookup=config.key_lookup_for_site(self.config, site)
+                    fileobj=io.BytesIO(bmeta_compressed),
+                    metadata=metadata,
+                    key_lookup=config.key_lookup_for_site(self.config, site)
             ) as input_obj:
                 meta = extract_pghoard_delta_v1_metadata(input_obj)
 
@@ -339,9 +340,9 @@ class PGHoard:
         if metadata.get("format") == BaseBackupFormat.v2:
             bmeta_compressed = storage.get_contents_to_string(main_backup_key)[0]
             with rohmufile.file_reader(
-                fileobj=io.BytesIO(bmeta_compressed),
-                metadata=metadata,
-                key_lookup=config.key_lookup_for_site(self.config, site)
+                    fileobj=io.BytesIO(bmeta_compressed),
+                    metadata=metadata,
+                    key_lookup=config.key_lookup_for_site(self.config, site)
             ) as input_obj:
                 bmeta = extract_pghoard_bb_v2_metadata(input_obj)
                 self.log.debug("PGHoard chunk metadata: %r", bmeta)
@@ -594,6 +595,10 @@ class PGHoard:
 
         chosen_backup_node = random.choice(site_config["nodes"])
 
+        # for any operations that must be executed on a primary node, but pghoard
+        # is pointing at a standby, can provide an optional primary node as well as the chosen_backup_node
+        primary_node = site_config["primary_node"] if "primary_node" in site_config else None
+
         if site not in self.receivexlogs and site not in self.walreceivers:
             if site_config["active_backup_mode"] == "pg_receivexlog":
                 self.receivexlog_listener(site, chosen_backup_node, xlog_path + "_incoming")
@@ -660,7 +665,7 @@ class PGHoard:
                         return
 
             self.basebackups_callbacks[site] = Queue()
-            self.create_basebackup(site, chosen_backup_node, basebackup_path, self.basebackups_callbacks[site], metadata)
+            self.create_basebackup(site, chosen_backup_node, basebackup_path, self.basebackups_callbacks[site], metadata, primary_node)
 
     def get_new_backup_details(self, *, now=None, site, site_config):
         """Returns metadata to associate with new backup that needs to be created or None in case no backup should
