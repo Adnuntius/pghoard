@@ -112,6 +112,7 @@ def write_file(
     output_obj,
     progress_callback=None,
     compression_algorithm=None,
+    compression_threads=0,
     compression_level=0,
     rsa_public_key=None,
     log_func=None,
@@ -124,6 +125,7 @@ def write_file(
     with file_writer(
         fileobj=output_obj,
         compression_algorithm=compression_algorithm,
+        compression_threads=compression_threads,
         compression_level=compression_level,
         rsa_public_key=rsa_public_key
     ) as fp_out:

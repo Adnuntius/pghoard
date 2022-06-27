@@ -277,6 +277,7 @@ class PGBaseBackup(Thread):
                 output_obj=output_obj,
                 compression_algorithm=compression_algorithm,
                 compression_level=compression_level,
+                compression_threads=self.site_config["basebackup_compression_threads"],
                 rsa_public_key=rsa_public_key,
                 progress_callback=progress_callback,
                 log_func=self.log.info,

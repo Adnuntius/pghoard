@@ -204,6 +204,7 @@ class CompressorThread(Thread):
                 data_callback=hasher.update if hasher else None,
                 input_obj=input_obj,
                 output_obj=output_obj,
+                compression_threads=self.config["backup_sites"][site]["basebackup_compression_threads"],
                 compression_algorithm=self.config["compression"]["algorithm"],
                 compression_level=self.config["compression"]["level"],
                 rsa_public_key=rsa_public_key,
