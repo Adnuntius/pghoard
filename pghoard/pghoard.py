@@ -187,7 +187,7 @@ class PGHoard:
             return False
         return True
 
-    def create_basebackup(self, site, connection_info, basebackup_path, callback_queue=None, metadata=None):
+    def create_basebackup(self, site, connection_info, basebackup_path, callback_queue=None, metadata=None, primary_connection_info=None):
         if self.metrics:
             self.metrics.gauge("pghoard.backup_stream.basebackup_requested", 1, tags={"site": site})
 
@@ -210,7 +210,8 @@ class PGHoard:
             metrics=self.metrics,
             storage=self.get_or_create_site_storage(site=site),
             metadata=metadata,
-            get_remote_basebackups_info=self.get_remote_basebackups_info
+            get_remote_basebackups_info=self.get_remote_basebackups_info,
+            primary_connection_info=primary_connection_info
         )
         thread.start()
         self.basebackups[site] = thread
@@ -728,7 +729,11 @@ class PGHoard:
                         return
 
             self.basebackups_callbacks[site] = Queue()
-            self.create_basebackup(site, chosen_backup_node, basebackup_path, self.basebackups_callbacks[site], metadata)
+
+            # for any operations that must be executed on a primary node, but pghoard
+            # is pointing at a standby, can provide an optional primary node as well as the chosen_backup_node
+            primary_node = site_config["primary_node"] if "primary_node" in site_config else None
+            self.create_basebackup(site, chosen_backup_node, basebackup_path, self.basebackups_callbacks[site], metadata, primary_node)
 
     def get_new_backup_details(self, *, now=None, site, site_config):
         """Returns metadata to associate with new backup that needs to be created or None in case no backup should
