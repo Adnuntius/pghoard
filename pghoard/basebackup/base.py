@@ -66,7 +66,8 @@ class PGBaseBackup(PGHoardThread):
         callback_queue=None,
         pg_version_server=None,
         metadata=None,
-        get_remote_basebackups_info=None
+        get_remote_basebackups_info=None,
+        primary_connection_info=None
     ):
         super().__init__()
         self.log = logging.getLogger("PGBaseBackup")
@@ -86,6 +87,7 @@ class PGBaseBackup(PGHoardThread):
         self.latest_activity = datetime.datetime.utcnow()
         self.storage = storage
         self.get_remote_basebackups_info = get_remote_basebackups_info
+        self.primary_connection_info = primary_connection_info
 
         self.chunk_uploader = ChunkUploader(
             metrics=self.metrics,
@@ -737,7 +739,13 @@ class PGBaseBackup(PGHoardThread):
             assert backup_label
             backup_label_data = backup_label.encode("utf-8")
             backup_start_wal_segment, backup_start_time = self.parse_backup_label(backup_label_data)
-            backup_end_wal_segment, backup_end_time = self.get_backup_end_segment_and_time(db_conn, backup_mode)
+            if not self.primary_connection_info:
+                backup_end_wal_segment, backup_end_time = self.get_backup_end_segment_and_time(db_conn, backup_mode)
+
+        if self.primary_connection_info:
+            connection_string = connection_string_using_pgpass(self.primary_connection_info)
+            with psycopg2.connect(connection_string) as db_conn:
+                backup_end_wal_segment, backup_end_time = self.get_backup_end_segment_and_time(db_conn, backup_mode)
 
         # Generate and upload the metadata chunk
         metadata = {
