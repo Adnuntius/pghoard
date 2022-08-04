@@ -801,13 +801,14 @@ class PGBaseBackup(PGHoardThread):
         cursor = db_conn.cursor()
 
         # Get backup end time and end segment and forcibly register a transaction in the current segment
-        # Also check if we're a superuser and can directly call pg_switch_xlog()/pg_switch_wal() later.
+        # Also check if user can directly call pg_switch_xlog()/pg_switch_wal() later.
         # Note that we can't call pg_walfile_name() or pg_current_wal_lsn() in recovery
+        switch_wal_function = 'pg_switch_wal()' if self.pg_version_server >= 100000 else 'pg_switch_xlog()'
         cursor.execute(
-            "SELECT now(), pg_is_in_recovery(), "
-            "       (SELECT rolsuper FROM pg_catalog.pg_roles WHERE rolname = current_user)"
+            f"SELECT now(), pg_is_in_recovery(), has_function_privilege(current_user, '{switch_wal_function}', 'EXECUTE')"
         )
-        backup_end_time, in_recovery, is_superuser = cursor.fetchone()
+        backup_end_time, in_recovery, has_switch_wal_privilege = cursor.fetchone()
+
         if in_recovery:
             db_conn.commit()
             return None, backup_end_time
@@ -822,7 +823,7 @@ class PGBaseBackup(PGHoardThread):
         # Now force switch of the WAL segment to make sure we have archived a segment with a known
         # timestamp after pg_stop_backup() was called.
         backup_end_name = "pghoard_end_of_backup"
-        if is_superuser:
+        if has_switch_wal_privilege:
             if self.pg_version_server >= 100000:
                 cursor.execute("SELECT pg_switch_wal()")
             else:
