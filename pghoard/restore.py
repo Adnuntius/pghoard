@@ -25,8 +25,7 @@ import time
 import uuid
 # ignore pylint/distutils issue, https://github.com/PyCQA/pylint/issues/73
 from dataclasses import dataclass, field
-from distutils.version import \
-    LooseVersion  # pylint: disable=no-name-in-module,import-error
+from packaging.version import Version
 from threading import RLock
 from typing import Any, Dict, List, Optional, Set, Union
 
@@ -113,9 +112,10 @@ def create_recovery_conf(
         "%f",
     ]
     with open(os.path.join(dirpath, "PG_VERSION"), "r") as fp:
-        pg_version = LooseVersion(fp.read().strip())
+        v = Version(fp.read().strip())
+        pg_version = v.major if v.major >= 10 else float(f"{v.major}.{v.minor}")
 
-    if pg_version >= "12":
+    if pg_version >= 12:
         trigger_file_setting = "promote_trigger_file"
     else:
         trigger_file_setting = "trigger_file"
@@ -127,7 +127,7 @@ def create_recovery_conf(
         "restore_command = '{}'".format(" ".join(restore_command)),
     ]
 
-    use_recovery_conf = (pg_version < "12")  # no more recovery.conf in PG >= 12
+    use_recovery_conf = (pg_version < 12)  # no more recovery.conf in PG >= 12
     if not restore_to_primary:
         if use_recovery_conf:
             lines.append("standby_mode = 'on'")
@@ -140,7 +140,7 @@ def create_recovery_conf(
     if recovery_end_command:
         lines.append("recovery_end_command = {}".format(adapt(recovery_end_command)))
     if recovery_target_action:
-        if pg_version >= "9.5":
+        if pg_version >= 9.5:
             lines.append("recovery_target_action = '{}'".format(recovery_target_action))
         elif recovery_target_action == "promote":
             pass  # default action

@@ -18,7 +18,7 @@ import tempfile
 import time
 from contextlib import suppress
 from dataclasses import dataclass, field
-from distutils.version import LooseVersion
+from packaging.version import Version
 from pathlib import Path
 from queue import Queue
 from threading import Thread
@@ -327,7 +327,7 @@ def extract_pghoard_delta_metadata(fileobj):
 
 
 def get_pg_wal_directory(config):
-    if LooseVersion(config["pg_data_directory_version"]) >= "10":
+    if Version(config["pg_data_directory_version"]).major >= 10:
         return os.path.join(config["pg_data_directory"], "pg_wal")
     return os.path.join(config["pg_data_directory"], "pg_xlog")
 
