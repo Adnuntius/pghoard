@@ -85,6 +85,7 @@ class PGBaseBackup(PGHoardThread):
         self.metrics = metrics
         self.transfer_queue = transfer_queue
         self.running = True
+        self._db_conn: Optional[psycopg2.extensions.connection] = None
         self.pid = None
         self.pg_version_server = pg_version_server
         self.latest_activity = datetime.datetime.utcnow()
@@ -101,6 +102,16 @@ class PGBaseBackup(PGHoardThread):
             is_running=lambda: self.running,
             transfer_queue=transfer_queue
         )
+
+    def cancel(self) -> None:
+        self.running = False
+        db_conn = self._db_conn
+        if db_conn is not None:
+            try:
+                db_conn.cancel()
+                self.log.info("Cancelled active database query due to shutdown")
+            except Exception as e:  # pylint: disable=broad-except
+                self.log.warning("Failed to cancel database query: %s", e)
 
     def run_safe(self):
         try:
@@ -547,6 +558,7 @@ class PGBaseBackup(PGHoardThread):
         self.log.debug("Connecting to database to start backup process")
         connection_string = connection_string_using_pgpass(self.connection_info)
         with psycopg2.connect(connection_string) as db_conn:
+            self._db_conn = db_conn
             conn_polling = lambda: check_if_pg_connection_is_alive(db_conn)
             cursor = db_conn.cursor()
 
@@ -695,6 +707,7 @@ class PGBaseBackup(PGHoardThread):
                 progress_instance.reset_all(metrics=self.metrics)
 
             finally:
+                self._db_conn = None
                 db_conn.rollback()
                 if not backup_stopped:
                     self._stop_backup(cursor)

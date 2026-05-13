@@ -92,6 +92,69 @@ LABEL: pg_basebackup base backup
         assert start_wal_segment == "000000010000000000000004"
         assert start_time == "2015-02-12T14:07:19+00:00"
 
+    def test_cancel_stops_running_and_cancels_connection(self):
+        pgb = _get_simple_pg_base_backup()
+        mock_conn = MagicMock()
+        pgb._db_conn = mock_conn  # pylint: disable=protected-access
+
+        pgb.cancel()
+
+        assert pgb.running is False
+        mock_conn.cancel.assert_called_once()
+
+    def test_cancel_without_active_connection(self):
+        pgb = _get_simple_pg_base_backup()
+        assert pgb._db_conn is None  # pylint: disable=protected-access
+
+        pgb.cancel()
+
+        assert pgb.running is False
+
+    def test_cancel_tolerates_connection_error(self):
+        pgb = _get_simple_pg_base_backup()
+        mock_conn = MagicMock()
+        mock_conn.cancel.side_effect = psycopg2.InterfaceError("connection already closed")
+        pgb._db_conn = mock_conn  # pylint: disable=protected-access
+
+        pgb.cancel()
+
+        assert pgb.running is False
+        mock_conn.cancel.assert_called_once()
+
+    def test_cancel_interrupts_stuck_start_backup(self):
+        import threading
+
+        pgb = _get_simple_pg_base_backup()
+        mock_conn = MagicMock()
+        query_started = threading.Event()
+        query_cancelled = threading.Event()
+
+        def blocking_execute(_query, *_args):
+            query_started.set()
+            query_cancelled.wait(timeout=5)
+            raise psycopg2.extensions.QueryCanceledError("canceling statement due to user request")
+
+        mock_cursor = MagicMock()
+        mock_cursor.execute.side_effect = blocking_execute
+        mock_conn.cursor.return_value = mock_cursor
+        mock_conn.cancel.side_effect = query_cancelled.set
+
+        pgb._db_conn = mock_conn  # pylint: disable=protected-access
+
+        def run_start_backup():
+            with pytest.raises(psycopg2.extensions.QueryCanceledError):
+                pgb._start_backup(mock_cursor, "test_backup")  # pylint: disable=protected-access
+
+        backup_thread = threading.Thread(target=run_start_backup)
+        backup_thread.start()
+
+        query_started.wait(timeout=5)
+        pgb.cancel()
+
+        backup_thread.join(timeout=5)
+        assert not backup_thread.is_alive()
+        assert pgb.running is False
+
     def test_find_files(self, db):
         top1 = os.path.join(db.pgdata, "top1.test")
         top2 = os.path.join(db.pgdata, "top2.test")

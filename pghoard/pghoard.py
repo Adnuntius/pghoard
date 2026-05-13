@@ -1139,6 +1139,8 @@ class PGHoard:
         """
         self.log.info("Gracefully shutting down...")
         self.running = False
+        for basebackup_thread in self.basebackups.values():
+            basebackup_thread.cancel()
         for thread in [*self.receivexlogs.values(), *self.walreceivers.values()]:
             thread.running = False
             thread.join(timeout=10)
@@ -1163,6 +1165,8 @@ class PGHoard:
         all_threads = self._get_all_threads()
         for t in all_threads:
             t.running = False
+        for basebackup_thread in self.basebackups.values():
+            basebackup_thread.cancel()
         # Write state file in the end so we get the last known state
         self.write_backup_state_to_json_file()
         for t in all_threads:
