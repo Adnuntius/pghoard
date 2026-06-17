@@ -204,7 +204,7 @@ def create_pgpass_file(connection_string_or_info):
         with open(pgpass_path, "w") as fp:
             os.fchmod(fp.fileno(), 0o600)
             fp.write(content)
-        LOG.debug("Wrote %r to %r", pwline, pgpass_path)
+        LOG.debug("Wrote credentials to %r", pgpass_path)
     return pgutil.create_connection_string(info)
 
 
