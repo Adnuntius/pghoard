@@ -208,7 +208,7 @@ class PGHoard:
             return False
         return True
 
-    def create_basebackup(self, site, connection_info, basebackup_path, callback_queue, metadata=None):
+    def create_basebackup(self, site, connection_info, basebackup_path, callback_queue, metadata=None, primary_connection_info=None):
         if self.metrics:
             self.metrics.gauge("pghoard.backup_stream.basebackup_requested", 1, tags={"site": site})
 
@@ -231,7 +231,8 @@ class PGHoard:
             metrics=self.metrics,
             storage=self.get_or_create_site_storage(site=site),
             metadata=metadata,
-            get_remote_basebackups_info=self.get_remote_basebackups_info
+            get_remote_basebackups_info=self.get_remote_basebackups_info,
+            primary_connection_info=primary_connection_info,
         )
         thread.start()
         self.basebackups[site] = thread
@@ -896,6 +897,7 @@ class PGHoard:
                 basebackup_path=backup_site_paths.basebackup_path,
                 callback_queue=self.basebackups_callbacks[site],
                 metadata=metadata,
+                primary_connection_info=site_config.get("primary_node"),
             )
 
     def get_new_backup_details(self, *, now=None, site, site_config):

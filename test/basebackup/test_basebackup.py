@@ -117,9 +117,32 @@ LABEL: pg_basebackup base backup
         pgb._db_conn = mock_conn  # pylint: disable=protected-access
 
         pgb.cancel()
-
         assert pgb.running is False
         mock_conn.cancel.assert_called_once()
+
+    def test_create_basebackup_passes_primary_node_to_pgb(self, pghoard):
+        pghoard.create_backup_site_paths(pghoard.test_site)
+        basebackup_path = os.path.join(pghoard.config["backup_location"], pghoard.test_site, "basebackup")
+        callback_queue = Queue()
+        metadata = {"backup-reason": BackupReason.scheduled}
+        primary_node = {"host": "primary.example", "port": 5432, "user": "replication"}
+        pghoard.config["backup_sites"][pghoard.test_site]["primary_node"] = primary_node
+
+        with patch.object(pghoard, "check_pg_server_version", return_value=140000), \
+                patch.object(pghoard, "check_pg_versions_ok", return_value=True), \
+                patch("pghoard.pghoard.PGBaseBackup") as pgb_cls:
+            pgb_instance = pgb_cls.return_value
+            pgb_instance.start = Mock()
+            pghoard.create_basebackup(
+                pghoard.test_site,
+                {"host": "standby.example", "port": 5432, "user": "replication"},
+                basebackup_path,
+                callback_queue,
+                metadata,
+                primary_connection_info=primary_node,
+            )
+
+        assert pgb_cls.call_args.kwargs["primary_connection_info"] == primary_node
 
     def test_cancel_interrupts_stuck_start_backup(self):
         import threading
